@@ -5,5 +5,5 @@
     "background": {
         "scripts": ["main.js"]
     },
-    "permissions": ["tabs"]
+    "permissions": ["tabs", "http://*/*", "https://*/*"]
 }
