@@ -15,15 +15,14 @@ import (
 )
 
 var (
-	play, pause, idle string
-	playing           string
-	indicator         *gotk3.AppIndicatorGotk3
+	play, pause    string
+	state, playing string
+	indicator      *gotk3.AppIndicatorGotk3
 )
 
 func init() {
 	flag.StringVar(&play, "play", "", "Path to the play icon")
 	flag.StringVar(&pause, "pause", "", "Path to the pause icon")
-	flag.StringVar(&idle, "idle", "∅∅∅∅∅∅∅∅∅∅", "Idle message")
 
 	flag.Parse()
 }
@@ -35,7 +34,10 @@ func ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	path := decodePath(req.URL)
 
-	switch path[0] {
+	oldState := state
+	state := path[0]
+
+	switch state {
 	case "play":
 		title := cleanTitle(path[1])
 		playing = title
@@ -43,19 +45,29 @@ func ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		current := formatDuration(path[2])
 		duration := formatDuration(path[3])
 
-		indicator.SetIcon(play, "")
+		if state != oldState {
+			indicator.SetIcon(play, "")
+		}
 		indicator.SetLabel(fmt.Sprintf("%s (%s / %s)", title, current, duration), "")
-	case "pause":
-		indicator.SetIcon(pause, "")
 
+		if indicator.GetStatus() != appindicator.StatusActive {
+			indicator.SetStatus(appindicator.StatusActive)
+		}
+	case "pause":
 		for i := 1; i < len(path); i++ {
 			title := cleanTitle(path[i])
 			if title == playing {
+				if state != oldState {
+					indicator.SetIcon(pause, "")
+				}
+
 				return
 			}
 		}
 
-		indicator.SetLabel(idle, "")
+		if indicator.GetStatus() != appindicator.StatusPassive {
+			indicator.SetStatus(appindicator.StatusPassive)
+		}
 	default:
 	}
 }
@@ -111,8 +123,7 @@ func indicate() {
 
 	indicator = gotk3.NewAppIndicator("indicator-youtube", pause, appindicator.CategorySystemServices)
 
-	indicator.SetStatus(appindicator.StatusActive)
-	indicator.SetLabel(idle, "")
+	indicator.SetStatus(appindicator.StatusPassive)
 
 	menu, err := gtk.MenuNew()
 	if err != nil {
