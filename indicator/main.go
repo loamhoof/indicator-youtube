@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -15,22 +16,28 @@ import (
 )
 
 var (
-	play, pause    string
-	state, playing string
-	indicator      *gotk3.AppIndicatorGotk3
+	play, pause, logFile string
+	state, playing       string
+	indicator            *gotk3.AppIndicatorGotk3
+	logger               *log.Logger
 )
 
 func init() {
 	flag.StringVar(&play, "play", "", "Path to the play icon")
 	flag.StringVar(&pause, "pause", "", "Path to the pause icon")
+	flag.StringVar(&logFile, "log", "", "Log file")
 
 	flag.Parse()
+
+	logger = log.New(os.Stdout, "", log.LstdFlags)
 }
 
 func ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if indicator == nil {
 		return
 	}
+
+	logger.Println("Request", req.URL.Path)
 
 	path := decodePath(req.URL)
 
@@ -46,11 +53,16 @@ func ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		duration := formatDuration(path[3])
 
 		if state != oldState {
+			logger.Println("Set icon play")
 			indicator.SetIcon(play, "")
 		}
-		indicator.SetLabel(fmt.Sprintf("%s (%s / %s)", title, current, duration), "")
+
+		label := fmt.Sprintf("%s (%s / %s)", title, current, duration)
+		logger.Println("Set label", label)
+		indicator.SetLabel(label, "")
 
 		if indicator.GetStatus() != appindicator.StatusActive {
+			logger.Println("Set status active")
 			indicator.SetStatus(appindicator.StatusActive)
 		}
 	case "pause":
@@ -58,6 +70,7 @@ func ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			title := cleanTitle(path[i])
 			if title == playing {
 				if state != oldState {
+					logger.Println("Set icon pause")
 					indicator.SetIcon(pause, "")
 				}
 
@@ -66,6 +79,7 @@ func ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		}
 
 		if indicator.GetStatus() != appindicator.StatusPassive {
+			logger.Println("Set status passive")
 			indicator.SetStatus(appindicator.StatusPassive)
 		}
 	default:
@@ -144,6 +158,15 @@ func indicate() {
 }
 
 func main() {
+	if logFile != "" {
+		f, err := os.OpenFile(logFile, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, os.ModePerm)
+		if err != nil {
+			logger.Fatalln(err)
+		}
+		defer f.Close()
+		logger = log.New(f, "", log.LstdFlags)
+	}
+
 	go serve()
 
 	indicate()
