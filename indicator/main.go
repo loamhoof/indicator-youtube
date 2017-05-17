@@ -42,7 +42,7 @@ func ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	path := decodePath(req.URL)
 
 	oldState := state
-	state := path[0]
+	state = path[0]
 
 	switch state {
 	case "play":
