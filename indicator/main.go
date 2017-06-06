@@ -10,19 +10,26 @@ import (
 	"strings"
 	"time"
 
-	"github.com/conformal/gotk3/gtk"
-	"github.com/doxxan/appindicator"
-	"github.com/doxxan/appindicator/gtk-extensions/gotk3"
+	pb "github.com/loamhoof/indicator"
+	"github.com/loamhoof/indicator/client"
+)
+
+const (
+	ID = "indicator-youtube"
 )
 
 var (
 	play, pause, logFile string
-	state, playing       string
-	indicator            *gotk3.AppIndicatorGotk3
+	port                 int
+	sc                   *client.ShepherdClient
+	playing              string
 	logger               *log.Logger
+	resetTimer           *time.Timer
+	resetAfter           time.Duration = time.Second * 3
 )
 
 func init() {
+	flag.IntVar(&port, "port", 15000, "Port of the shepherd")
 	flag.StringVar(&play, "play", "", "Path to the play icon")
 	flag.StringVar(&pause, "pause", "", "Path to the pause icon")
 	flag.StringVar(&logFile, "log", "", "Log file")
@@ -33,56 +40,32 @@ func init() {
 }
 
 func ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	if indicator == nil {
-		return
-	}
-
 	logger.Println("Request", req.URL.Path)
+
+	resetTimer.Reset(resetAfter)
 
 	path := decodePath(req.URL)
 
-	oldState := state
-	state = path[0]
+	title := cleanTitle(path[1])
+	current := formatDuration(path[2])
+	duration := formatDuration(path[3])
+	label := fmt.Sprintf("%s (%s / %s)", title, current, duration)
 
-	switch state {
-	case "play":
-		title := cleanTitle(path[1])
-		playing = title
+	var icon string
+	if path[4] == "false" {
+		icon = play
+	} else {
+		icon = pause
+	}
 
-		current := formatDuration(path[2])
-		duration := formatDuration(path[3])
-
-		if state != oldState {
-			logger.Println("Set icon play")
-			indicator.SetIcon(play, "")
-		}
-
-		label := fmt.Sprintf("%s (%s / %s)", title, current, duration)
-		logger.Println("Set label", label)
-		indicator.SetLabel(label, "")
-
-		if indicator.GetStatus() != appindicator.StatusActive {
-			logger.Println("Set status active")
-			indicator.SetStatus(appindicator.StatusActive)
-		}
-	case "pause":
-		for i := 1; i < len(path); i++ {
-			title := cleanTitle(path[i])
-			if title == playing {
-				if state != oldState {
-					logger.Println("Set icon pause")
-					indicator.SetIcon(pause, "")
-				}
-
-				return
-			}
-		}
-
-		if indicator.GetStatus() != appindicator.StatusPassive {
-			logger.Println("Set status passive")
-			indicator.SetStatus(appindicator.StatusPassive)
-		}
-	default:
+	iReq := &pb.Request{
+		Id:     ID,
+		Label:  label,
+		Icon:   icon,
+		Active: true,
+	}
+	if _, err := sc.Update(iReq); err != nil {
+		logger.Println(err)
 	}
 }
 
@@ -132,31 +115,6 @@ func serve() {
 	}
 }
 
-func indicate() {
-	gtk.Init(nil)
-
-	indicator = gotk3.NewAppIndicator("indicator-youtube", pause, appindicator.CategorySystemServices)
-
-	indicator.SetStatus(appindicator.StatusPassive)
-
-	menu, err := gtk.MenuNew()
-	if err != nil {
-		panic(err)
-	}
-
-	menuItem, err := gtk.MenuItemNewWithLabel("")
-	if err != nil {
-		panic(err)
-	}
-
-	menu.Append(menuItem)
-
-	menuItem.Show()
-	indicator.SetMenu(menu)
-
-	gtk.Main()
-}
-
 func main() {
 	if logFile != "" {
 		f, err := os.OpenFile(logFile, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, os.ModePerm)
@@ -167,7 +125,27 @@ func main() {
 		logger = log.New(f, "", log.LstdFlags)
 	}
 
-	go serve()
+	sc = client.NewShepherdClient(port)
+	for {
+		err := sc.Init()
+		if err == nil {
+			break
+		}
+		logger.Fatalf("Could not connect: %v", err)
 
-	indicate()
+		time.Sleep(time.Second * 5)
+	}
+	defer sc.Close()
+
+	resetTimer = time.AfterFunc(resetAfter, func() {
+		iReq := &pb.Request{
+			Id:     ID,
+			Active: false,
+		}
+		if _, err := sc.Update(iReq); err != nil {
+			logger.Println(err)
+		}
+	})
+
+	serve()
 }
