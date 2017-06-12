@@ -49,7 +49,7 @@ func ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	title := cleanTitle(path[1])
 	current := formatDuration(path[2])
 	duration := formatDuration(path[3])
-	label := fmt.Sprintf("%s (%s / %s)", title, current, duration)
+	label := fmt.Sprintf("%.50s (%s / %s)", title, current, duration)
 
 	var icon string
 	if path[4] == "false" {
@@ -59,10 +59,11 @@ func ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	iReq := &pb.Request{
-		Id:     ID,
-		Label:  label,
-		Icon:   icon,
-		Active: true,
+		Id:         ID,
+		Label:      label,
+		LabelGuide: "ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWX (00:00 / 99:99)",
+		Icon:       icon,
+		Active:     true,
 	}
 	if _, err := sc.Update(iReq); err != nil {
 		logger.Println(err)
